@@ -54,6 +54,7 @@ public class MultiDCEachQuorumIsNotQuorumTest extends BulkReaderMultiDCTestBase
     @Test
     void eachQuorumIsNotQuorum()
     {
+        LOGGER.error("eachQuorumIsNotQuorum Test Start");
         try
         {
             List<String> updatedDataSet = new ArrayList<>(OG_DATASET);
@@ -62,6 +63,7 @@ public class MultiDCEachQuorumIsNotQuorumTest extends BulkReaderMultiDCTestBase
             // Internally update value for TEST_KEY for node5 and node6. This update doesn't propagate to other nodes.
             updateValueNodeInternal(5, TEST_KEY, TEST_VAL);
             updateValueNodeInternal(6, TEST_KEY, TEST_VAL);
+            LOGGER.error("eachQuorumIsNotQuorum debug point1");
 
             // Bytecode injection to simulate a scenario where node5 and node6 are at the end of the replica list for bulk reader.
             // This simulation mimics a real world scenario.
@@ -83,10 +85,12 @@ public class MultiDCEachQuorumIsNotQuorumTest extends BulkReaderMultiDCTestBase
             ClassReloadingStrategy.fromInstalledAgent()
             );
 
+            LOGGER.error("eachQuorumIsNotQuorum debug point2");
             // Bulk read with QUORUM consistency
             List<Row> rowList = bulkRead(ConsistencyLevel.QUORUM.name());
             // Validate that the result doesn't have the updated data.
             validateBulkReadRows(rowList, OG_DATASET);
+            LOGGER.error("eachQuorumIsNotQuorum debug point3");
 
             // Message filter to mimic message drops from Node5 and Node6 to Node1.
             // We are setting this up to simulate a scenario where reading values with QUORUM consistency with driver
@@ -98,23 +102,28 @@ public class MultiDCEachQuorumIsNotQuorumTest extends BulkReaderMultiDCTestBase
             String quorumVal = readValueForKey(cluster.get(1).coordinator(), TEST_KEY, ConsistencyLevel.QUORUM);
             // Validate that the updated value is not read
             assertThat(quorumVal).isEqualTo(OG_DATASET.get(TEST_KEY));
+            LOGGER.error("eachQuorumIsNotQuorum debug point4");
 
             // Cleanup message filter
             cluster.filters().reset();
 
             // Bulk read with EACH_QUORUM consistency
             rowList = bulkRead(ConsistencyLevel.EACH_QUORUM.name());
+            LOGGER.error("eachQuorumIsNotQuorum debug point5");
             // Validate that bulk reader was able to read the updated value
             validateBulkReadRows(rowList, updatedDataSet);
+            LOGGER.error("eachQuorumIsNotQuorum debug point6");
             // Read value using driver with EACH_QUORUM
             String eachQuorumVal = readValueForKey(TEST_KEY, ConsistencyLevel.EACH_QUORUM);
+            LOGGER.error("eachQuorumIsNotQuorum debug point7");
             // Validate that EACH_QUORUM read using driver and the bulk reader are the same
             assertThat(eachQuorumVal).isEqualTo(rowList.get(TEST_KEY).getString(1));
 
             // Revert the value update for all nodes
             setValueForALL(TEST_KEY, OG_DATASET.get(TEST_KEY));
+            LOGGER.error("eachQuorumIsNotQuorum debug point8");
         }
-        catch (Exception e)
+        catch (Throwable e)
         {
             LOGGER.error("Test eachQuorumIsNotQuorum failed with exception", e);
             fail("Test failed with exception: " + e.getMessage(), e);

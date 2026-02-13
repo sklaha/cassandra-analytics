@@ -60,6 +60,11 @@ dependencies {
     testImplementation(project(':cassandra-analytics-core'))
     testImplementation(group: 'net.java.dev.jna', name: 'jna', version: '5.9.0')
 
+    // Add SLF4J and Logback explicitly since integration-framework excludes them
+    testImplementation 'org.slf4j:slf4j-api:1.7.36'
+    testImplementation 'ch.qos.logback:logback-classic:1.2.12'
+    testImplementation 'ch.qos.logback:logback-core:1.2.12'
+
     testImplementation(group: "${sparkGroupId}", name: "spark-core_${scalaMajorVersion}", version: "${sparkVersion}")
     testImplementation(group: "${sparkGroupId}", name: "spark-sql_${scalaMajorVersion}", version: "${sparkVersion}")
 
@@ -109,7 +114,7 @@ test {
         showCauses true
         showStackTraces true
 
-        showStandardStreams = false
+        showStandardStreams = true
     }
 
     if (JavaVersion.current().isJava11Compatible()) {
