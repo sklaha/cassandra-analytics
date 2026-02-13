@@ -49,6 +49,7 @@ import org.jetbrains.annotations.NotNull;
 import static org.apache.cassandra.distributed.shared.NetworkTopology.dcAndRack;
 import static org.apache.cassandra.testing.TestUtils.DC1_RF3_DC2_RF3;
 import static org.apache.cassandra.testing.TestUtils.TEST_KEYSPACE;
+import static org.apache.cassandra.testing.TestUtils.TEST_TABLE_PREFIX;
 import static org.apache.cassandra.testing.TestUtils.uniqueTestTableFullName;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -174,6 +175,8 @@ public class BulkReaderMultiDCConsistencyTest extends SharedClusterSparkIntegrat
         cluster.filters().allVerbs().from(5).to(1).drop();
         cluster.filters().allVerbs().from(6).to(1).drop();
 
+        // Validate schema is present on all nodes
+        validateSchemaOnAllNodes();
         // Read value for TEST_KEY with driver using Node1 as coordinator
         String quorumVal = readValueForKey(cluster.get(1).coordinator(), TEST_KEY, ConsistencyLevel.QUORUM);
         // Validate that the updated value is not read
@@ -302,6 +305,24 @@ public class BulkReaderMultiDCConsistencyTest extends SharedClusterSparkIntegrat
         setValueForALL(TEST_KEY, OG_DATASET.get(TEST_KEY));
     }
 
+    /**
+     * Validates that the test table schema is present on all nodes in the cluster.
+     */
+    private void validateSchemaOnAllNodes()
+    {
+        for (int nodeId = 1; nodeId <= 6; nodeId++)
+        {
+            Object[][] schemaResult = cluster.get(nodeId).executeInternal("describe schema");
+            assertThat(schemaResult).isNotNull();
+            assertThat(Arrays.stream(schemaResult)
+                             .flatMap(Arrays::stream)
+                             .map(Object::toString)
+                             .anyMatch(s -> s.contains(TEST_TABLE_PREFIX)))
+            .as(String.format("Schema should contain %s on node %d", TEST_TABLE_PREFIX, nodeId))
+            .isTrue();
+        }
+    }
+
     @NotNull
     private List<Row> bulkRead(String consistency)
     {
@@ -330,6 +351,7 @@ public class BulkReaderMultiDCConsistencyTest extends SharedClusterSparkIntegrat
         }
     }
 
+    @Override
     protected void initializeSchemaForTest()
     {
         createTestKeyspace(TEST_KEYSPACE, DC1_RF3_DC2_RF3);
@@ -344,6 +366,8 @@ public class BulkReaderMultiDCConsistencyTest extends SharedClusterSparkIntegrat
 
             firstRunningInstance.coordinator().execute(query1, ConsistencyLevel.ALL);
         }
+        // Validate schema is present on all nodes
+        validateSchemaOnAllNodes();
         validateReadRepairIsDisabled();
     }
 
