@@ -23,6 +23,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.agent.ByteBuddyAgent;
@@ -35,6 +37,7 @@ import org.apache.cassandra.spark.data.partitioner.CassandraInstance;
 import org.apache.spark.sql.Row;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 /**
  * This test creates a scenario where bulk reader reads the most recently updated value with EACH_QUORUM
@@ -43,70 +46,78 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 public class MultiDCEachQuorumIsNotQuorumTest extends BulkReaderMultiDCTestBase
 {
+    private static final Logger LOGGER = LoggerFactory.getLogger(MultiDCEachQuorumIsNotQuorumTest.class);
+
     /**
      * Tests that QUORUM differs from EACH_QUORUM in multi-DC environments.
-     *
-     * @throws NoSuchMethodException if reflection fails
      */
     @Test
-    void eachQuorumIsNotQuorum() throws NoSuchMethodException
+    void eachQuorumIsNotQuorum()
     {
-        List<String> updatedDataSet = new ArrayList<>(OG_DATASET);
-        updatedDataSet.set(1, TEST_VAL);
+        try
+        {
+            List<String> updatedDataSet = new ArrayList<>(OG_DATASET);
+            updatedDataSet.set(1, TEST_VAL);
 
-        // Internally update value for TEST_KEY for node5 and node6. This update doesn't propagate to other nodes.
-        updateValueNodeInternal(5, TEST_KEY, TEST_VAL);
-        updateValueNodeInternal(6, TEST_KEY, TEST_VAL);
+            // Internally update value for TEST_KEY for node5 and node6. This update doesn't propagate to other nodes.
+            updateValueNodeInternal(5, TEST_KEY, TEST_VAL);
+            updateValueNodeInternal(6, TEST_KEY, TEST_VAL);
 
-        // Bytecode injection to simulate a scenario where node5 and node6 are at the end of the replica list for bulk reader.
-        // This simulation mimics a real world scenario.
-        // With this arrangement PartitionedDataLayer.splitReplicas method for QUORUM will split the replicas like below:
-        // primaryReplicas: [Node1, Node2, Node3, Node4]
-        // secondaryReplicas: [Node5, Node6]
-        // Number of nodes required for QUORUM read id 6/1 + 1 = 4. Bulk reader will read from [Node1, Node2, Node3, Node4] only.
-        ByteBuddyAgent.install();
-        new ByteBuddy()
-        .redefine(CassandraDataLayer.class)
-        .method(ElementMatchers.named("getAvailability"))
-        .intercept(
-        MethodCall.invoke(BulkReaderMultiDCTestBase.class.getMethod("getAvailability", CassandraInstance.class))
-                  .withAllArguments()
-        )
-        .make()
-        .load(
-        CassandraDataLayer.class.getClassLoader(),
-        ClassReloadingStrategy.fromInstalledAgent()
-        );
+            // Bytecode injection to simulate a scenario where node5 and node6 are at the end of the replica list for bulk reader.
+            // This simulation mimics a real world scenario.
+            // With this arrangement PartitionedDataLayer.splitReplicas method for QUORUM will split the replicas like below:
+            // primaryReplicas: [Node1, Node2, Node3, Node4]
+            // secondaryReplicas: [Node5, Node6]
+            // Number of nodes required for QUORUM read id 6/1 + 1 = 4. Bulk reader will read from [Node1, Node2, Node3, Node4] only.
+            ByteBuddyAgent.install();
+            new ByteBuddy()
+            .redefine(CassandraDataLayer.class)
+            .method(ElementMatchers.named("getAvailability"))
+            .intercept(
+            MethodCall.invoke(BulkReaderMultiDCTestBase.class.getMethod("getAvailability", CassandraInstance.class))
+                      .withAllArguments()
+            )
+            .make()
+            .load(
+            CassandraDataLayer.class.getClassLoader(),
+            ClassReloadingStrategy.fromInstalledAgent()
+            );
 
-        // Bulk read with QUORUM consistency
-        List<Row> rowList = bulkRead(ConsistencyLevel.QUORUM.name());
-        // Validate that the result doesn't have the updated data.
-        validateBulkReadRows(rowList, OG_DATASET);
+            // Bulk read with QUORUM consistency
+            List<Row> rowList = bulkRead(ConsistencyLevel.QUORUM.name());
+            // Validate that the result doesn't have the updated data.
+            validateBulkReadRows(rowList, OG_DATASET);
 
-        // Message filter to mimic message drops from Node5 and Node6 to Node1.
-        // We are setting this up to simulate a scenario where reading values with QUORUM consistency with driver
-        // and using Node1 as the coordinator doesn't get the values from Node5 and Node6.
-        cluster.filters().allVerbs().from(5).to(1).drop();
-        cluster.filters().allVerbs().from(6).to(1).drop();
+            // Message filter to mimic message drops from Node5 and Node6 to Node1.
+            // We are setting this up to simulate a scenario where reading values with QUORUM consistency with driver
+            // and using Node1 as the coordinator doesn't get the values from Node5 and Node6.
+            cluster.filters().allVerbs().from(5).to(1).drop();
+            cluster.filters().allVerbs().from(6).to(1).drop();
 
-        // Read value for TEST_KEY with driver using Node1 as coordinator
-        String quorumVal = readValueForKey(cluster.get(1).coordinator(), TEST_KEY, ConsistencyLevel.QUORUM);
-        // Validate that the updated value is not read
-        assertThat(quorumVal).isEqualTo(OG_DATASET.get(TEST_KEY));
+            // Read value for TEST_KEY with driver using Node1 as coordinator
+            String quorumVal = readValueForKey(cluster.get(1).coordinator(), TEST_KEY, ConsistencyLevel.QUORUM);
+            // Validate that the updated value is not read
+            assertThat(quorumVal).isEqualTo(OG_DATASET.get(TEST_KEY));
 
-        // Cleanup message filter
-        cluster.filters().reset();
+            // Cleanup message filter
+            cluster.filters().reset();
 
-        // Bulk read with EACH_QUORUM consistency
-        rowList = bulkRead(ConsistencyLevel.EACH_QUORUM.name());
-        // Validate that bulk reader was able to read the updated value
-        validateBulkReadRows(rowList, updatedDataSet);
-        // Read value using driver with EACH_QUORUM
-        String eachQuorumVal = readValueForKey(TEST_KEY, ConsistencyLevel.EACH_QUORUM);
-        // Validate that EACH_QUORUM read using driver and the bulk reader are the same
-        assertThat(eachQuorumVal).isEqualTo(rowList.get(TEST_KEY).getString(1));
+            // Bulk read with EACH_QUORUM consistency
+            rowList = bulkRead(ConsistencyLevel.EACH_QUORUM.name());
+            // Validate that bulk reader was able to read the updated value
+            validateBulkReadRows(rowList, updatedDataSet);
+            // Read value using driver with EACH_QUORUM
+            String eachQuorumVal = readValueForKey(TEST_KEY, ConsistencyLevel.EACH_QUORUM);
+            // Validate that EACH_QUORUM read using driver and the bulk reader are the same
+            assertThat(eachQuorumVal).isEqualTo(rowList.get(TEST_KEY).getString(1));
 
-        // Revert the value update for all nodes
-        setValueForALL(TEST_KEY, OG_DATASET.get(TEST_KEY));
+            // Revert the value update for all nodes
+            setValueForALL(TEST_KEY, OG_DATASET.get(TEST_KEY));
+        }
+        catch (Exception e)
+        {
+            LOGGER.error("Test eachQuorumIsNotQuorum failed with exception", e);
+            fail("Test failed with exception: " + e.getMessage(), e);
+        }
     }
 }
