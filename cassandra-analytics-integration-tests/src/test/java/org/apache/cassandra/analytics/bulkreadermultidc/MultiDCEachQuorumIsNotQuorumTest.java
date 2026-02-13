@@ -95,8 +95,8 @@ public class MultiDCEachQuorumIsNotQuorumTest extends BulkReaderMultiDCTestBase
             // Message filter to mimic message drops from Node5 and Node6 to Node1.
             // We are setting this up to simulate a scenario where reading values with QUORUM consistency with driver
             // and using Node1 as the coordinator doesn't get the values from Node5 and Node6.
-            cluster.filters().allVerbs().from(5).to(1).drop();
-            cluster.filters().allVerbs().from(6).to(1).drop();
+            cluster.filters().allVerbs().from(1).to(5).drop();
+            cluster.filters().allVerbs().from(1).to(6).drop();
 
             // Read value for TEST_KEY with driver using Node1 as coordinator
             String quorumVal = readValueForKey(cluster.get(1).coordinator(), TEST_KEY, ConsistencyLevel.QUORUM);
