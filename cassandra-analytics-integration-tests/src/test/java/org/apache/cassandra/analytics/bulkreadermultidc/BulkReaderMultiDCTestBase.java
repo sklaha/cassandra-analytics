@@ -26,6 +26,7 @@ import java.util.stream.Collectors;
 
 import org.apache.cassandra.analytics.SharedClusterSparkIntegrationTestBase;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
+import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.sidecar.testing.QualifiedName;
@@ -59,6 +60,10 @@ public abstract class BulkReaderMultiDCTestBase extends SharedClusterSparkIntegr
         return super.testClusterConfiguration()
                     .dcCount(2)
                     .nodesPerDc(3)
+                    .requestFeature(Feature.NETWORK)
+                    .requestFeature(Feature.GOSSIP)
+                    .requestFeature(Feature.BLANK_GOSSIP)
+                    .requestFeature(Feature.NATIVE_PROTOCOL)
                     .dcAndRackSupplier((nodeId) -> {
                         switch (nodeId)
                         {
